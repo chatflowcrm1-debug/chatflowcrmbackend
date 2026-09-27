@@ -1,0 +1,49 @@
+{
+  "name": "chatflowcrmbackend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ChatFlow CRM backend API",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "prebuild": "prisma generate --schema prisma/schema.prisma",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "jest --runInBand"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.16.2",
+    "@types/nodemailer": "^8.0.2",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^10.0.10",
+    "prisma": "^5.16.2",
+    "rate-limiter-flexible": "^5.0.0",
+    "uuid": "^10.0.0",
+    "ws": "^8.15.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.1",
+    "@types/cors": "^2.8.5",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.0",
+    "@types/jsonwebtoken": "^9.0.2",
+    "@types/node": "^22.10.1",
+    "@types/ws": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.16.0",
+    "@typescript-eslint/parser": "^8.16.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "tsx": "^4.17.0",
+    "typescript": "^5.7.2"
+  }
+}

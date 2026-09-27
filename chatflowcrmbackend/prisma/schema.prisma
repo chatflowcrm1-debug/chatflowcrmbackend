@@ -1,0 +1,758 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  status      String   @default("ACTIVE")
+  currency    String   @default("USD")
+  timezone    String   @default("UTC")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members        OrganizationMember[]
+  customers      Customer[]
+  leads          Lead[]
+  deals          Deal[]
+  tags           Tag[]
+  pipelineStages PipelineStage[]
+  followUps      FollowUp[]
+  notes          Note[]
+  activities     Activity[]
+  users          User[]
+  telecomAccounts  TelecomAccount[]
+  phoneNumbers     PhoneNumber[]
+  calls            TelecomCall[]
+  recordings       Recording[]
+  telecomMessages  TelecomMessage[]
+  usageRecords     UsageRecord[]
+  subscriptions    Subscription[]
+  campaigns        Campaign[]
+  whatsappAccounts WhatsAppAccount[]
+  conversations  Conversation[]
+  messages       Message[]
+  webhookEvents  WebhookEvent[]
+  telecomOperations TelecomOperation[]
+  refreshSessions RefreshSession[]
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String
+  firstName       String
+  lastName        String
+  supabaseUserId  String?  @unique
+  isActive        Boolean  @default(true)
+  isEmailVerified Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships     OrganizationMember[]
+  assignedCustomers Customer[] @relation("CustomerAssignee")
+  assignedLeads   Lead[] @relation("LeadAssignee")
+  assignedDeals   Deal[] @relation("DealAssignee")
+  followUps       FollowUp[]
+  notes           Note[]
+  activities      Activity[]
+  assignedPhoneNumbers  PhoneNumber[]
+  telecomCalls          TelecomCall[]
+  telecomMessages       TelecomMessage[]
+  telecomOperations     TelecomOperation[]
+  assignedConversations Conversation[] @relation("ConversationAssignee")
+  refreshSessions        RefreshSession[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([email])
+}
+
+model OrganizationMember {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  role           String   @default("AGENT")
+  title          String?
+  isActive       Boolean  @default(true)
+  joinedAt       DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, role])
+}
+
+model RefreshSession {
+  id                  String    @id @default(uuid())
+  userId              String
+  organizationId      String
+  tokenHash           String    @unique
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  replacedBySessionId String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([organizationId, revokedAt])
+}
+
+model EmailVerificationToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt])
+  @@index([expiresAt])
+}
+
+model Role {
+  id          String @id @default(uuid())
+  name        String @unique
+  permissions String[]
+  description String?
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  name        String @unique
+  description String?
+}
+
+model Customer {
+  id             String    @id @default(uuid())
+  organizationId String
+  name           String
+  phone          String?
+  email          String?
+  company        String?
+  address        String?
+  city           String?
+  country        String?
+  status         String    @default("ACTIVE")
+  source         String?
+  assignedUserId String?
+  notes          String?
+  lastContactAt  DateTime?
+  nextFollowUpAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  assignedUser  User?          @relation("CustomerAssignee", fields: [assignedUserId], references: [id])
+  leads         Lead[]
+  deals         Deal[]
+  followUps     FollowUp[]
+  customerNotes Note[]         @relation("CustomerNotes")
+  customerTags  CustomerTag[]
+  calls         TelecomCall[]
+  telecomMessages TelecomMessage[]
+  telecomOperations TelecomOperation[]
+  campaignRecipients CampaignRecipient[]
+  conversations Conversation[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, assignedUserId])
+}
+
+model CustomerTag {
+  id            String   @id @default(uuid())
+  organizationId String
+  customerId    String
+  tagId         String
+  createdAt     DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  tag      Tag      @relation(fields: [tagId], references: [id])
+
+  @@unique([customerId, tagId])
+}
+
+model Tag {
+  id            String   @id @default(uuid())
+  organizationId String
+  name          String
+  color         String   @default("#10B981")
+  createdAt     DateTime @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  customerTags CustomerTag[]
+
+  @@unique([organizationId, name])
+}
+
+model Lead {
+  id              String    @id @default(uuid())
+  organizationId  String
+  customerId      String?
+  name            String
+  email           String?
+  phone           String?
+  company         String?
+  source          String?
+  status          String    @default("NEW")
+  value           Decimal?  @db.Decimal(12, 2)
+  probability     Int       @default(0)
+  assignedUserId  String?
+  notes           String?
+  expectedCloseAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  assignedUser User?        @relation("LeadAssignee", fields: [assignedUserId], references: [id])
+  deals        Deal[]
+  followUps    FollowUp[]
+  leadNotes    Note[]       @relation("LeadNotes")
+
+  @@index([organizationId, status])
+  @@index([organizationId, assignedUserId])
+}
+
+model Deal {
+  id              String    @id @default(uuid())
+  organizationId  String
+  name            String
+  customerId      String?
+  leadId          String?
+  stage           String    @default("NEW")
+  value           Decimal   @db.Decimal(12, 2)
+  currency        String    @default("USD")
+  assignedUserId  String?
+  expectedCloseAt DateTime?
+  notes           String?
+  status          String    @default("OPEN")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  lead         Lead?        @relation(fields: [leadId], references: [id])
+  assignedUser User?        @relation("DealAssignee", fields: [assignedUserId], references: [id])
+
+  @@index([organizationId, stage])
+  @@index([organizationId, assignedUserId])
+}
+
+model PipelineStage {
+  id            String   @id @default(uuid())
+  organizationId String
+  name          String
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, name])
+}
+
+model FollowUp {
+  id            String   @id @default(uuid())
+  organizationId String
+  customerId    String?
+  leadId        String?
+  assignedUserId String?
+  type          String   @default("CALL")
+  dueAt         DateTime
+  priority      String   @default("MEDIUM")
+  status        String   @default("UPCOMING")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  lead         Lead?        @relation(fields: [leadId], references: [id])
+  assignedUser User?        @relation(fields: [assignedUserId], references: [id])
+
+  @@index([organizationId, status, dueAt])
+}
+
+model WhatsAppAccount {
+  id               String   @id
+  organizationId   String
+  provider         String   @default("MOCK")
+  phoneNumberId    String
+  displayName      String
+  phoneNumber      String?
+  providerAccountId String?
+  status           String   @default("DISCONNECTED")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  conversations Conversation[]
+
+  @@unique([organizationId, phoneNumberId])
+  @@index([organizationId, status])
+}
+
+model Conversation {
+  id                   String   @id @default(uuid())
+  organizationId      String
+  whatsappAccountId   String?
+  channel              String   @default("WHATSAPP")
+  externalContactId   String
+  customerId           String?
+  title                String?
+  status               String   @default("OPEN")
+  assignedUserId       String?
+  unreadCount          Int      @default(0)
+  lastMessageAt        DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  whatsappAccount WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
+  customer     Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedUser User? @relation("ConversationAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  messages     Message[]
+
+  @@unique([organizationId, channel, externalContactId])
+  @@index([organizationId, lastMessageAt])
+  @@index([organizationId, status, assignedUserId])
+}
+
+model Message {
+  id                String   @id @default(uuid())
+  organizationId    String
+  conversationId    String
+  provider          String   @default("MOCK")
+  direction         String
+  body              String?
+  providerMessageId String?
+  status            String   @default("PENDING")
+  senderId          String?
+  recipientId       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+
+  @@unique([provider, providerMessageId])
+  @@index([organizationId, conversationId, createdAt])
+}
+
+model WebhookEvent {
+  id              String   @id
+  organizationId  String?
+  provider        String
+  externalEventId String
+  payloadHash     String
+  processedAt     DateTime?
+  createdAt       DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalEventId])
+  @@index([organizationId, createdAt])
+}
+
+model TelecomOperation {
+  id                     String    @id @default(uuid())
+  organizationId         String
+  userId                String
+  customerId            String?
+  phoneNumberId         String?
+  telecomCallId         String?
+  telecomMessageId      String?
+  operationType          String
+  provider               String
+  status                String    @default("PENDING")
+  idempotencyKeyHash    String
+  requestHash           String
+  providerResourceType   String?
+  providerResourceId     String?
+  providerError         String?
+  providerResponseRef   String?
+  providerAcceptedAt    DateTime?
+  providerResolvedAt    DateTime?
+  attemptCount          Int       @default(0)
+  lastAttemptAt         DateTime?
+  nextAttemptAt         DateTime?
+  leaseOwner            String?
+  leaseUntil            DateTime?
+  version               Int       @default(0)
+  failureClass          String?
+  reasonCode            String?
+  reconciliationState   String?
+  reconciledAt          DateTime?
+  reconciliationError   String?
+  compensationState     String?
+  compensationStartedAt DateTime?
+  compensationCompletedAt DateTime?
+  compensationError     String?
+  metadata              Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  completedAt           DateTime?
+  failedAt              DateTime?
+
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  user             User         @relation(fields: [userId], references: [id])
+  customer         Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  phoneNumber      PhoneNumber? @relation(fields: [phoneNumberId], references: [id], onDelete: SetNull)
+  telecomCall      TelecomCall? @relation(fields: [telecomCallId], references: [id], onDelete: SetNull)
+  telecomMessage   TelecomMessage? @relation(fields: [telecomMessageId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, operationType, idempotencyKeyHash])
+  @@index([organizationId, createdAt])
+  @@index([status, nextAttemptAt, leaseUntil])
+  @@index([provider, providerResourceType, providerResourceId])
+}
+
+model Activity {
+  id            String   @id @default(uuid())
+  organizationId String
+  userId        String?
+  entityType    String
+  entityId      String
+  action        String
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model Note {
+  id            String   @id @default(uuid())
+  organizationId String
+  userId        String
+  customerId    String?
+  leadId        String?
+  content       String
+  createdAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+  customer     Customer?    @relation("CustomerNotes", fields: [customerId], references: [id])
+  lead         Lead?        @relation("LeadNotes", fields: [leadId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model TelecomAccount {
+  id                String   @id @default(uuid())
+  organizationId    String
+  provider          String
+  providerAccountId String?
+  status            String   @default("DISCONNECTED")
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  phoneNumbers PhoneNumber[]
+
+  @@index([organizationId, status])
+}
+
+model PhoneNumber {
+  id               String   @id @default(uuid())
+  organizationId   String
+  telecomAccountId String?
+  assignedUserId   String?
+  provider         String
+  providerNumberId String?
+  phoneNumber      String
+  country          String
+  numberType       String
+  areaCode         String?
+  capabilities     String[]
+  status           String   @default("ACTIVE")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  telecomAccount TelecomAccount?  @relation(fields: [telecomAccountId], references: [id])
+  assignedUser   User?            @relation(fields: [assignedUserId], references: [id])
+  calls          TelecomCall[]
+  messages       TelecomMessage[]
+  telecomOperations TelecomOperation[]
+
+  @@unique([organizationId, phoneNumber])
+  @@index([organizationId, country, numberType])
+}
+
+model TelecomCall {
+  id               String    @id @default(uuid())
+  organizationId   String
+  userId           String?
+  customerId       String?
+  phoneNumberId    String?
+  provider         String
+  providerCallId   String?
+  direction        String
+  status           String    @default("INITIATED")
+  fromNumber       String
+  toNumber         String
+  startedAt        DateTime?
+  answeredAt       DateTime?
+  endedAt          DateTime?
+  durationSeconds  Int?
+  recordingEnabled Boolean   @default(false)
+  recordingId      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  phoneNumber  PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
+  events       CallEvent[]
+  recording    Recording?
+  telecomOperations TelecomOperation[]
+
+  @@unique([provider, providerCallId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, customerId])
+}
+
+model CallEvent {
+  id              String   @id @default(uuid())
+  callId          String
+  providerEventId String?
+  eventType       String
+  payload         Json
+  createdAt       DateTime @default(now())
+
+  call TelecomCall @relation(fields: [callId], references: [id])
+
+  @@index([callId, createdAt])
+}
+
+model Recording {
+  id                  String   @id @default(uuid())
+  organizationId      String
+  callId              String   @unique
+  providerRecordingId String?
+  storageUrl          String?
+  durationSeconds     Int?
+  status              String   @default("PENDING")
+  createdAt           DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  call         TelecomCall  @relation(fields: [callId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model TelecomMessage {
+  id                String   @id @default(uuid())
+  organizationId    String
+  userId            String?
+  customerId        String?
+  phoneNumberId     String?
+  provider          String
+  providerMessageId String?
+  direction         String
+  fromNumber        String
+  toNumber          String
+  body              String
+  status            String   @default("QUEUED")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  user         User?                 @relation(fields: [userId], references: [id])
+  customer     Customer?             @relation(fields: [customerId], references: [id])
+  phoneNumber  PhoneNumber?          @relation(fields: [phoneNumberId], references: [id])
+  events       TelecomMessageEvent[]
+  telecomOperations TelecomOperation[]
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, customerId])
+  @@unique([provider, providerMessageId])
+  @@map("TelecomMessage")
+}
+
+model TelecomMessageEvent {
+  id              String   @id @default(uuid())
+  messageId       String
+  providerEventId String?
+  eventType       String
+  payload         Json
+  createdAt       DateTime @default(now())
+
+  message TelecomMessage @relation(fields: [messageId], references: [id])
+
+  @@index([messageId, createdAt])
+  @@map("TelecomMessageEvent")
+}
+
+model UsageRecord {
+  id                  String   @id @default(uuid())
+  organizationId      String
+  subscriptionId      String?
+  planId              String?
+  provider            String
+  category            String
+  quantity            Int      @default(0)
+  unit                String
+  periodStart         DateTime
+  periodEnd           DateTime
+  sourceType          String?
+  sourceId            String?
+  campaignId          String?
+  campaignRecipientId String?
+  messageId           String?
+  telecomCallId       String?
+  telecomMessageId    String?
+  providerId          String?
+  unitPrice           Decimal? @db.Decimal(18, 6)
+  currency            String?
+  amount              Decimal? @db.Decimal(18, 6)
+  status              String   @default("RECORDED")
+  idempotencyKey      String?  @unique
+  metadata            Json?
+  createdAt           DateTime @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  plan         Plan?         @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, periodStart, periodEnd])
+  @@index([organizationId, category, periodStart, periodEnd])
+  @@index([organizationId, sourceType, sourceId])
+}
+
+model Plan {
+  id               String   @id @default(uuid())
+  name             String   @unique
+  description      String?
+  isActive         Boolean  @default(true)
+  monthlyPrice     Decimal  @db.Decimal(18, 2)
+  currency         String   @default("USD")
+  contactLimit     Int?
+  emailLimit       Int?
+  smsLimit         Int?
+  voiceMinuteLimit Int?
+  phoneNumberLimit Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  subscriptions Subscription[]
+  usageRecords  UsageRecord[]
+}
+
+model Subscription {
+  id                     String    @id @default(uuid())
+  organizationId         String    @unique
+  planId                 String
+  status                 String    @default("TRIALING")
+  currentPeriodStart    DateTime
+  currentPeriodEnd      DateTime
+  cancelAtPeriodEnd     Boolean   @default(false)
+  startedAt             DateTime  @default(now())
+  canceledAt            DateTime?
+  providerName          String?
+  externalCustomerId    String?
+  externalSubscriptionId String?
+  externalPriceId       String?
+  paymentStatus         String?
+  lastWebhookEventId    String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         Plan          @relation(fields: [planId], references: [id])
+  usageRecords UsageRecord[]
+
+  @@index([planId, status])
+  @@index([status, currentPeriodEnd])
+}
+
+model Campaign {
+  id             String    @id @default(uuid())
+  organizationId String
+  name           String
+  type           String
+  status         String    @default("DRAFT")
+  subject        String?
+  content        String
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  recipients   CampaignRecipient[]
+  events       CampaignEvent[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+}
+
+model CampaignRecipient {
+  id           String   @id @default(uuid())
+  campaignId   String
+  customerId   String
+  destination  String
+  status       String   @default("PENDING")
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  failedAt     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer Customer        @relation(fields: [customerId], references: [id])
+  events   CampaignEvent[]
+
+  @@unique([campaignId, customerId])
+  @@index([campaignId, status])
+}
+
+model CampaignEvent {
+  id                  String   @id @default(uuid())
+  campaignId          String
+  campaignRecipientId String?
+  type                String
+  metadata            Json?
+  createdAt           DateTime @default(now())
+
+  campaign  Campaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, createdAt])
+  @@index([campaignRecipientId, createdAt])
+}
