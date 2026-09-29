@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "prebuild": "prisma generate --schema prisma/schema.prisma",
     "build": "tsc -p tsconfig.json",
+    "prestart": "npm run db:migrate:deploy",
     "start": "node dist/src/server.js",
     "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
     "lint": "eslint . --ext .ts",
