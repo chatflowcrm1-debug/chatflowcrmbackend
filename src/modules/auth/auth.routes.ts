@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma';
 import { env } from '../../config/env';
+import { logger } from '../../utils/logger';
 import { requireAuth, AuthRequest } from '../../middleware/auth';
 import { loginRateLimit, passwordResetRateLimit, refreshRateLimit, registrationRateLimit, verificationRateLimit } from '../../middleware/rate-limit';
 import { DEFAULT_PERMISSIONS, createOneTimeToken, hashPassword, hashRefreshToken, isRefreshSessionUsable, signJwt, signRefreshToken, verifyPassword } from './auth.service';
@@ -34,6 +35,19 @@ const resetSchema = z.object({ token: z.string().min(1), password: z.string().mi
 const REFRESH_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+function safeVerificationEmailErrorMessage(error: unknown, token?: string) {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error';
+  const secrets = [env.smtpUser, env.smtpPassword, env.jwtSecret, env.jwtRefreshSecret, token]
+    .filter((value): value is string => Boolean(value));
+  const redactedMessage = secrets.reduce((safeMessage, secret) => {
+    return [secret, encodeURIComponent(secret)].reduce(
+      (result, value) => result.split(value).join('[REDACTED]'),
+      safeMessage,
+    );
+  }, message);
+  return redactedMessage.replace(/https?:\/\/\S+/gi, '[REDACTED_URL]');
+}
 
 async function createRefreshSessionForUser(userId: string, organizationId: string, rawRefreshToken: string) {
   const tokenHash = hashRefreshToken(rawRefreshToken);
@@ -125,7 +139,8 @@ router.post('/register', registrationRateLimit, async (req, res) => {
   let emailSent = true;
   try {
     await sendVerificationEmail(user.email, verificationToken);
-  } catch (_error) {
+  } catch (error) {
+    logger.error('Verification email delivery failed', safeVerificationEmailErrorMessage(error, verificationToken));
     emailSent = false;
   }
 
@@ -239,10 +254,12 @@ router.post('/resend-verification', verificationRateLimit, async (req, res) => {
 
   const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
   if (user && !user.isEmailVerified) {
+    let token: string | undefined;
     try {
-      const token = await issueVerificationToken(user.id);
+      token = await issueVerificationToken(user.id);
       await sendVerificationEmail(user.email, token);
-    } catch (_error) {
+    } catch (error) {
+      logger.error('Verification email delivery failed', safeVerificationEmailErrorMessage(error, token));
       // Keep the response generic and avoid account enumeration.
     }
   }
