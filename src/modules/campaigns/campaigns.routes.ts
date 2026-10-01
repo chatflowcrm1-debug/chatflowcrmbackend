@@ -14,6 +14,7 @@ const campaignSchema = z.object({
   type: z.enum(campaignTypes),
   audience: z.enum(recipientModes).default('ALL'),
   customerIds: z.array(z.string().min(1)).default([]),
+  marketingContactIds: z.array(z.string().min(1)).default([]),
   subject: z.string().trim().max(200).optional(),
   content: z.string().trim().min(1).max(10000),
   scheduledAt: z.string().datetime().optional().nullable(),
@@ -21,30 +22,107 @@ const campaignSchema = z.object({
 
 const updateSchema = campaignSchema.partial();
 
-function destinationFor(type: string, customer: { email: string | null; phone: string | null }) {
-  return type === 'EMAIL' ? customer.email : customer.phone;
+function destinationFor(type: string, contact: { email: string | null; phone: string | null }) {
+  const destination = type === 'EMAIL' ? contact.email : contact.phone;
+  return destination?.trim() || null;
 }
 
 async function getOwnedCampaign(id: string, organizationId: string) {
   return prisma.campaign.findFirst({
     where: { id, organizationId },
     include: {
-      recipients: { include: { customer: { select: { id: true, name: true, email: true, phone: true } }, events: true }, orderBy: { createdAt: 'asc' } },
+      recipients: {
+        include: {
+          customer: { select: { id: true, name: true, email: true, phone: true } },
+          marketingContact: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              customerId: true,
+              customer: { select: { id: true, name: true, email: true, phone: true } },
+            },
+          },
+          events: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      },
       events: { orderBy: { createdAt: 'asc' } },
     },
   });
 }
 
-async function resolveRecipients(organizationId: string, type: string, audience: 'ALL' | 'SELECTED', customerIds: string[]) {
+type ResolvedRecipient = { marketingContactId: string; customerId: string | null; destination: string };
+
+async function resolveRecipients(
+  organizationId: string,
+  type: string,
+  audience: 'ALL' | 'SELECTED',
+  customerIds: string[],
+  marketingContactIds: string[] = [],
+): Promise<ResolvedRecipient[]> {
+  let contacts: Array<{ id: string; customerId: string | null; email: string | null; phone: string | null }> = [];
   if (audience === 'SELECTED') {
-    const uniqueIds = [...new Set(customerIds)];
-    const customers = await prisma.customer.findMany({ where: { organizationId, id: { in: uniqueIds } }, select: { id: true, email: true, phone: true } });
-    if (customers.length !== uniqueIds.length) throw new Error('One or more selected customers are not in this organization');
-    return customers.map((customer) => ({ customerId: customer.id, destination: destinationFor(type, customer) })).filter((recipient): recipient is { customerId: string; destination: string } => Boolean(recipient.destination));
+    const selected = new Map<string, { id: string; customerId: string | null; email: string | null; phone: string | null }>();
+    const uniqueMarketingContactIds = [...new Set(marketingContactIds)];
+    if (uniqueMarketingContactIds.length) {
+      const selectedContacts = await prisma.marketingContact.findMany({
+        where: { organizationId, status: 'ACTIVE', id: { in: uniqueMarketingContactIds } },
+        select: { id: true, customerId: true, email: true, phone: true },
+      });
+      if (selectedContacts.length !== uniqueMarketingContactIds.length) {
+        throw new Error('One or more selected marketing contacts are not in this organization');
+      }
+      selectedContacts.forEach((contact) => selected.set(contact.id, contact));
+    }
+
+    const uniqueCustomerIds = [...new Set(customerIds)];
+    if (uniqueCustomerIds.length) {
+      const ownedCustomers = await prisma.customer.findMany({
+        where: { organizationId, id: { in: uniqueCustomerIds } },
+        select: { id: true },
+      });
+      if (ownedCustomers.length !== uniqueCustomerIds.length) {
+        throw new Error('One or more selected customers are not in this organization');
+      }
+      const linkedContacts = await prisma.marketingContact.findMany({
+        where: { organizationId, status: 'ACTIVE', customerId: { in: uniqueCustomerIds } },
+        select: { id: true, customerId: true, email: true, phone: true },
+      });
+      const representedCustomers = new Set(linkedContacts.map((contact) => contact.customerId));
+      if (uniqueCustomerIds.some((id) => !representedCustomers.has(id))) {
+        throw new Error('One or more selected customers have no marketing contact in this organization');
+      }
+      linkedContacts.forEach(({ id, customerId, email, phone }) => selected.set(id, { id, customerId, email, phone }));
+    }
+
+    if (!selected.size) throw new Error('Select at least one marketing contact');
+    contacts = [...selected.values()];
+  } else {
+    contacts = await prisma.marketingContact.findMany({
+      where: { organizationId, status: 'ACTIVE' },
+      select: { id: true, customerId: true, email: true, phone: true },
+    });
   }
 
-  const customers = await prisma.customer.findMany({ where: { organizationId }, select: { id: true, email: true, phone: true } });
-  return customers.map((customer) => ({ customerId: customer.id, destination: destinationFor(type, customer) })).filter((recipient): recipient is { customerId: string; destination: string } => Boolean(recipient.destination));
+  const eligibleContacts = contacts.flatMap((contact) => {
+    const destination = destinationFor(type, contact);
+    return destination ? [{ ...contact, destination }] : [];
+  });
+  if (audience === 'SELECTED' && eligibleContacts.length === 0) {
+    throw new Error(`No selected contacts have a usable ${type === 'EMAIL' ? 'email' : 'phone'} destination`);
+  }
+  const customerRecipientCounts = new Map<string, number>();
+  eligibleContacts.forEach(({ customerId }) => {
+    if (customerId) customerRecipientCounts.set(customerId, (customerRecipientCounts.get(customerId) || 0) + 1);
+  });
+  return eligibleContacts.map(({ id, customerId, destination }) => ({
+    marketingContactId: id,
+    customerId: customerId && customerRecipientCounts.get(customerId) === 1 ? customerId : null,
+    destination,
+  }));
 }
 
 router.get('/', requireAuth, requirePermission('campaigns.read'), async (req: AuthRequest, res) => {
@@ -63,11 +141,11 @@ router.post('/', sensitiveActionRateLimit, requireAuth, requirePermission('campa
   if (!parsed.success) return res.status(400).json({ message: 'Validation failed', issues: parsed.error.issues });
   const input = parsed.data;
   if (input.type === 'EMAIL' && !input.subject) return res.status(400).json({ message: 'Email campaigns require a subject' });
-  if (input.audience === 'SELECTED' && input.customerIds.length === 0) return res.status(400).json({ message: 'Select at least one customer' });
+  if (input.audience === 'SELECTED' && input.customerIds.length === 0 && input.marketingContactIds.length === 0) return res.status(400).json({ message: 'Select at least one marketing contact' });
   if (input.scheduledAt && new Date(input.scheduledAt).getTime() <= Date.now()) return res.status(400).json({ message: 'Scheduled time must be in the future' });
 
   try {
-    const recipients = await resolveRecipients(req.user!.organizationId, input.type, input.audience, input.customerIds);
+    const recipients = await resolveRecipients(req.user!.organizationId, input.type, input.audience, input.customerIds, input.marketingContactIds);
     const campaign = await prisma.campaign.create({
       data: {
         organizationId: req.user!.organizationId,
@@ -97,26 +175,38 @@ router.patch('/:id', sensitiveActionRateLimit, requireAuth, requirePermission('c
   const nextType = input.type || existing.type;
   const nextSubject = input.subject !== undefined ? input.subject : existing.subject;
   if (nextType === 'EMAIL' && !nextSubject) return res.status(400).json({ message: 'Email campaigns require a subject' });
+  if (existing.recipients.length > 0 && nextType !== existing.type) {
+    return res.status(400).json({ message: 'Campaign channel cannot change after recipients have been created' });
+  }
   if (input.scheduledAt && new Date(input.scheduledAt).getTime() <= Date.now()) return res.status(400).json({ message: 'Scheduled time must be in the future' });
 
   try {
     const audience = input.audience || 'SELECTED';
-    const customerIds = input.customerIds || existing.recipients.map((recipient) => recipient.customerId);
-    const resolved = input.audience || input.customerIds ? await resolveRecipients(req.user!.organizationId, nextType, audience, customerIds) : null;
-    const campaign = await prisma.$transaction(async (transaction) => {
-      if (resolved) await transaction.campaignRecipient.deleteMany({ where: { campaignId: existing.id } });
-      return transaction.campaign.update({
-        where: { id: existing.id },
-        data: {
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.type !== undefined ? { type: input.type } : {}),
-          ...(input.subject !== undefined ? { subject: nextType === 'EMAIL' ? input.subject : null } : {}),
-          ...(input.content !== undefined ? { content: input.content } : {}),
-          ...(input.scheduledAt !== undefined ? { scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null, status: input.scheduledAt ? 'SCHEDULED' : 'DRAFT' } : {}),
-          ...(resolved ? { recipients: { create: resolved } } : {}),
-        },
-        include: { _count: { select: { recipients: true } } },
-      });
+    const hasAudienceIds = input.customerIds !== undefined || input.marketingContactIds !== undefined;
+    const customerIds = input.customerIds ?? (hasAudienceIds ? [] : existing.recipients.map((recipient) => recipient.customerId).filter((value): value is string => Boolean(value)));
+    const marketingContactIds = input.marketingContactIds ?? (hasAudienceIds ? [] : existing.recipients.map((recipient) => recipient.marketingContactId).filter((value): value is string => Boolean(value)));
+    const shouldResolve = input.audience !== undefined || input.customerIds !== undefined || input.marketingContactIds !== undefined;
+    const resolved = shouldResolve
+      ? await resolveRecipients(req.user!.organizationId, nextType, audience, customerIds, marketingContactIds)
+      : null;
+    if (resolved) {
+      const existingContactIds = existing.recipients.map((recipient) => recipient.marketingContactId).filter((id): id is string => Boolean(id)).sort();
+      const requestedContactIds = resolved.map((recipient) => recipient.marketingContactId).sort();
+      if (existingContactIds.length !== requestedContactIds.length || existingContactIds.some((id, index) => id !== requestedContactIds[index])) {
+        return res.status(400).json({ message: 'Campaign recipients cannot be replaced; create a new draft campaign to change its audience' });
+      }
+    }
+
+    const campaign = await prisma.campaign.update({
+      where: { id: existing.id },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.type !== undefined ? { type: input.type } : {}),
+        ...(input.subject !== undefined ? { subject: nextType === 'EMAIL' ? input.subject : null } : {}),
+        ...(input.content !== undefined ? { content: input.content } : {}),
+        ...(input.scheduledAt !== undefined ? { scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null, status: input.scheduledAt ? 'SCHEDULED' : 'DRAFT' } : {}),
+      },
+      include: { _count: { select: { recipients: true } } },
     });
     return res.json({ message: 'Campaign updated', data: campaign });
   } catch (error) {

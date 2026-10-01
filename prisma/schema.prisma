@@ -20,6 +20,7 @@ model Organization {
 
   members        OrganizationMember[]
   customers      Customer[]
+  marketingContacts MarketingContact[]
   leads          Lead[]
   deals          Deal[]
   tags           Tag[]
@@ -183,9 +184,38 @@ model Customer {
   telecomOperations TelecomOperation[]
   campaignRecipients CampaignRecipient[]
   conversations Conversation[]
+  marketingContacts MarketingContact[]
 
   @@index([organizationId, status])
   @@index([organizationId, assignedUserId])
+}
+
+model MarketingContact {
+  id               String   @id @default(uuid())
+  organizationId   String
+  customerId       String?
+  email            String?
+  normalizedEmail  String?
+  phone            String?
+  normalizedPhone  String?
+  firstName        String?
+  lastName         String?
+  company          String?
+  status           String   @default("ACTIVE")
+  customFields     Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer          Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  campaignRecipients CampaignRecipient[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, customerId])
+  @@index([organizationId, normalizedEmail])
+  @@index([organizationId, normalizedPhone])
+  @@index([organizationId, firstName])
+  @@index([organizationId, lastName])
 }
 
 model CustomerTag {
@@ -725,7 +755,8 @@ model Campaign {
 model CampaignRecipient {
   id           String   @id @default(uuid())
   campaignId   String
-  customerId   String
+  customerId   String?
+  marketingContactId String?
   destination  String
   status       String   @default("PENDING")
   sentAt       DateTime?
@@ -735,10 +766,13 @@ model CampaignRecipient {
   updatedAt    DateTime @updatedAt
 
   campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  customer Customer        @relation(fields: [customerId], references: [id])
+  customer Customer?       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  marketingContact MarketingContact? @relation(fields: [marketingContactId], references: [id], onDelete: SetNull)
   events   CampaignEvent[]
 
   @@unique([campaignId, customerId])
+  @@unique([campaignId, marketingContactId])
+  @@index([marketingContactId])
   @@index([campaignId, status])
 }
 
