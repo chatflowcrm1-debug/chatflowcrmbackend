@@ -50,8 +50,7 @@ const jwtSecret = isProduction ? requiredProductionValue('JWT_SECRET') : process
 const jwtRefreshSecret = isProduction ? requiredProductionValue('JWT_REFRESH_SECRET') : process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret';
 const appUrl = isProduction ? requiredProductionValue('APP_URL') : process.env.APP_URL || 'http://localhost:3000';
 const apiUrl = isProduction ? requiredProductionValue('API_URL') : process.env.API_URL || 'http://localhost:4000';
-const smtpHost = isProduction ? requiredProductionValue('SMTP_HOST') : process.env.SMTP_HOST?.trim() || '';
-const smtpPort = Number(process.env.SMTP_PORT || 587);
+const resendApiKey = isProduction ? requiredProductionValue('RESEND_API_KEY') : process.env.RESEND_API_KEY?.trim() || '';
 const smtpUser = process.env.SMTP_USER?.trim() || '';
 const smtpPassword = process.env.SMTP_PASSWORD || '';
 const emailFrom = isProduction ? requiredProductionValue('EMAIL_FROM') : process.env.EMAIL_FROM?.trim() || '';
@@ -64,12 +63,6 @@ const telnyxPublicKey = telecomProvider === 'telnyx' && isProduction
   : process.env.TELNYX_PUBLIC_KEY?.trim() || '';
 const telnyxWebhookToleranceSeconds = positiveIntegerValue('TELNYX_WEBHOOK_TOLERANCE_SECONDS', DEFAULT_TELNYX_WEBHOOK_TOLERANCE_SECONDS);
 const telnyxRequestTimeoutMs = positiveIntegerValue('TELNYX_REQUEST_TIMEOUT_MS', DEFAULT_TELNYX_REQUEST_TIMEOUT_MS);
-if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
-  throw new Error('SMTP_PORT must be an integer between 1 and 65535');
-}
-if ((smtpUser && !smtpPassword) || (!smtpUser && smtpPassword)) {
-  throw new Error('SMTP_USER and SMTP_PASSWORD must be provided together');
-}
 const corsOrigins = isProduction
   ? productionCorsOrigins()
   : (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',').map((item) => item.trim()).filter(Boolean);
@@ -83,8 +76,7 @@ export const env = {
   jwtRefreshSecret,
   appUrl,
   apiUrl,
-  smtpHost,
-  smtpPort,
+  resendApiKey,
   smtpUser,
   smtpPassword,
   emailFrom,

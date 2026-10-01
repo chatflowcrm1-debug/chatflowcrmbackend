@@ -38,10 +38,9 @@ The backend requires these runtime variables when `NODE_ENV=production`:
 - `APP_URL`
 - `API_URL`
 - `CORS_ORIGINS`
-- `SMTP_HOST`
+- `RESEND_API_KEY`
 - `EMAIL_FROM`
 
-`PORT` is optional and defaults to `4000`. `SMTP_PORT` defaults to `587`.
-`SMTP_USER` and `SMTP_PASSWORD` must be provided together when SMTP
-authentication is used. The server exposes `GET /health` and does not run Prisma
-migrations during application startup.
+`PORT` is optional and defaults to `4000`. Email delivery uses the Resend API;
+`EMAIL_FROM` sets the sender address. The server exposes `GET /health` and does
+not run Prisma migrations during application startup.

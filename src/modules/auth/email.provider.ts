@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { env } from '../../config/env';
 
 export type TransactionalEmail = {
@@ -12,20 +12,21 @@ export interface EmailProvider {
   send(email: TransactionalEmail): Promise<void>;
 }
 
-class SmtpEmailProvider implements EmailProvider {
-  private readonly transporter = nodemailer.createTransport({
-    host: env.smtpHost,
-    port: env.smtpPort,
-    secure: env.smtpPort === 465,
-    auth: env.smtpUser ? { user: env.smtpUser, pass: env.smtpPassword } : undefined,
-  });
+class ResendEmailProvider implements EmailProvider {
+  private client?: Resend;
+
+  private getClient() {
+    if (!this.client) this.client = new Resend(env.resendApiKey);
+    return this.client;
+  }
 
   async send(email: TransactionalEmail) {
-    if (!env.smtpHost || !env.emailFrom) {
-      throw new Error('SMTP email provider is not configured');
+    if (!env.resendApiKey || !env.emailFrom) {
+      throw new Error('Resend email provider is not configured');
     }
-    await this.transporter.sendMail({ from: env.emailFrom, ...email });
+    const { error } = await this.getClient().emails.send({ from: env.emailFrom, ...email });
+    if (error) throw error;
   }
 }
 
-export const emailProvider: EmailProvider = new SmtpEmailProvider();
+export const emailProvider: EmailProvider = new ResendEmailProvider();
