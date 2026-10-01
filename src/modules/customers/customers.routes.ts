@@ -1,9 +1,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
 import { prisma } from '../../db/prisma';
 import { AuthRequest, requireAuth, requirePermission } from '../../middleware/auth';
+import { CUSTOMER_IMPORT_MAX_BYTES, importCustomersFromCsv } from './customer-import';
 
 const router = Router();
+const uploadCsv = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: CUSTOMER_IMPORT_MAX_BYTES },
+  fileFilter: (_req, file, callback) => callback(null, file.originalname.toLowerCase().endsWith('.csv')),
+});
 
 const customerSchema = z.object({
   name: z.string().min(1),
@@ -17,6 +24,25 @@ const customerSchema = z.object({
   source: z.string().optional().or(z.literal('')),
   assignedUserId: z.string().optional().or(z.literal('')),
   notes: z.string().optional().or(z.literal('')),
+});
+
+router.post('/import', requireAuth, requirePermission('customers.write'), (req: AuthRequest, res, next) => {
+  uploadCsv.single('file')(req, res, (error) => {
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ message: 'CSV file exceeds the 2 MB limit' });
+    if (error) return res.status(400).json({ message: 'A CSV file is required' });
+    return next();
+  });
+}, async (req: AuthRequest, res) => {
+  if (!req.file) return res.status(400).json({ message: 'A CSV file is required' });
+  if (!req.file.originalname.toLowerCase().endsWith('.csv')) return res.status(400).json({ message: 'Only CSV files are supported' });
+
+  try {
+    const preview = String(req.query.preview || req.body.preview || '').toLowerCase() === 'true';
+    const summary = await importCustomersFromCsv(req.user!.organizationId, req.file.buffer, preview);
+    return res.json({ data: summary });
+  } catch (error) {
+    return res.status(400).json({ message: error instanceof Error ? error.message : 'Unable to import customers' });
+  }
 });
 
 router.get('/', requireAuth, requirePermission('customers.read'), async (req: AuthRequest, res) => {
